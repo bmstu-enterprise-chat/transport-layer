@@ -1,5 +1,9 @@
 # securechat-transport
 
+## Репозитории
+- [Прикладной уровень - Репозиторий](https://github.com/your-username/application-layer-repo)
+- [Канальный уровень - Репозиторий](https://github.com/your-username/channel-layer-repo)
+
 ## Описание проекта
 Этот проект демонстрирует использование Apache Kafka в связке с Go. В проекте реализованы:
 - Producer (отправитель сообщений в Kafka)
@@ -56,23 +60,21 @@ $ make run
 ## API Эндпоинты
 | Метод | URL | Описание |
 |--------|-----|-------------|
+| POST | /send | Разбиение сообщения от фронтенда на сегменты|
 | POST | /transfer | Отправка сегмента в Kafka от канального уровня|
-| POST | /send | Разбиение сообщения на сегменты и их отправка |
-
-Используйте Postman или curl для отправки сегмента:
-
-```sh
-curl -X POST http://localhost:8080/transfer \
-     -H "Content-Type: application/json" \
-     -d '{"segment_number": 1, "total_segments": 1, "username": "test_user", "send_time": "2024-05-21T02:34:48Z", "payload": "Hello, world!"}'
-```
 
 Используйте следующий запрос для отправки сообщения:
-
 ```sh
 curl -X POST http://localhost:8080/send \
      -H "Content-Type: application/json" \
      -d '{"username": "test_user", "data": "This is a test message", "send_time": "2024-05-21T02:34:48Z"}'
+```
+
+Используйте Postman или curl для отправки сегмента:
+```sh
+curl -X POST http://localhost:8080/transfer \
+     -H "Content-Type: application/json" \
+     -d '{"segment_number": 1, "total_segments": 1, "username": "test_user", "send_time": "2024-05-21T02:34:48Z", "payload": "Hello, world!"}'
 ```
 
 ## Отправка сообщений на WebSocket сервер
@@ -93,5 +95,6 @@ curl -X POST http://localhost:8080/send \
 Ваш WebSocket сервер должен обработать этот запрос и передать сообщение конечному получателю, например, через открытое WebSocket соединение с клиентом.
 
 ## Полезные ссылки
+- [Методические указания](https://github.com/iu5git/Networking)
 - [Kafka Documentation](https://kafka.apache.org/documentation/)
 - [Sarama - Go Kafka Library](https://github.com/IBM/sarama)
