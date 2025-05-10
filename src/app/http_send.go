@@ -7,67 +7,128 @@ import (
 	"io"
 	"net/http"
 	"time"
+	"sync"
+	"log"
 )
 
-const CodeUrl = "http://192.168.123.120:8000/code" // адрес канального уровня
-
-func SendSegment(body Segment) {
-	reqBody, _ := json.Marshal(body)
-
-	req, _ := http.NewRequest("POST", CodeUrl, bytes.NewBuffer(reqBody))
-	req.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return
-	}
-
-	defer resp.Body.Close()
-}
-
-const SegmentSize = 100
-
+// Сообщение от прикладного уровня
 type SendRequest struct {
-	Id       int       `json:"id,omitempty"`
-	Username string    `json:"username"`
-	Text     string    `json:"data"`
-	SendTime time.Time `json:"send_time"`
+	Sender		string		`json:"sender"`
+	SendTime	time.Time	`json:"send_time"`
+	Payload		string		`json:"data"`
 }
 
+// Сообщение канальному уровня
+type Segment struct {
+	SegmentNumber	int			`json:"segment_number"`
+	TotalSegments	int			`json:"total_segments"`
+	Sender			string		`json:"sender"`
+	SendTime		time.Time	`json:"send_time"`
+	SegmentPayload	string		`json:"payload"`
+}
+
+// Функция для разделения сообщения на сегменты
+func splitSegment(payload string, segmentSize int) []string {
+	result := make([]string, 0)
+
+	length := len(payload) // длина сообщения в байтах
+	segmentCount := (length + segmentSize - 1) / segmentSize
+
+	for i := 0; i < segmentCount; i++ {
+		result = append(result, payload[i*segmentSize:min((i+1)*segmentSize, length)])
+	}
+
+	return result
+}
+
+// Функция для отправки сегмента на канальный уровень
+func sendSegment(url string, body Segment, wg *sync.WaitGroup, errors chan error) {
+    defer wg.Done()
+
+    // Сериализация структуры в JSON
+    payload, err := json.Marshal(body)
+    if err != nil {
+        errors <- fmt.Errorf("ошибка сериализации сегмента: %v", err)
+        return
+    }
+
+    // Отправляем POST-запрос
+    resp, err := http.Post(url, "application/json", bytes.NewBuffer(payload))
+    if err != nil {
+        errors <- fmt.Errorf("ошибка отправки запроса: %v", err)
+        return 
+    }
+    defer resp.Body.Close()
+
+    // Логируем ответ от сервера
+    if resp.StatusCode == http.StatusOK {
+        log.Printf("Сегмент %v отправлен успешно, статус: %s", body, resp.Status)
+    } else {
+        errors <- fmt.Errorf("сегмент %d не отправлен: статус %s", body.SegmentNumber, resp.Status)
+        return
+    }
+}
+
+// Обработчик POST-запросов от прикладного уровня
 func HandleSend(w http.ResponseWriter, r *http.Request) {
-	// читаем тело запроса - сообщение
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
+    defer r.Body.Close()
+    log.Printf("Получен запрос на /send, метод: %s, URL: %s", r.Method, r.URL)
 
-	// парсим сообщение в структуру
-	message := SendRequest{}
-	if err = json.Unmarshal(body, &message); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+    // Чтение тела запроса
+    req, err := io.ReadAll(r.Body)
+    if err != nil {
+        http.Error(w, "Ошибка чтения тела", http.StatusBadRequest)
+        log.Printf("Ошибка чтения тела запроса: %v", err)
+        return
+    }
 
-	// сразу отвечаем прикладному уровню 200 ОК - мы приняли работу
-	w.WriteHeader(http.StatusOK)
+    // Парсим сообщение в структуру
+    var message SendRequest
+    err = json.Unmarshal(req, &message)
+    if err != nil || message.Sender == "" || message.Payload == "" || message.SendTime.IsZero() {
+        http.Error(w, "Ошибка парсинга тела запроса", http.StatusBadRequest)
+        log.Printf("Ошибка парсинга запроса: %v", err)
+        return
+    }
+    log.Printf("Полученные данные от прикладного уровня: %+v", message)
 
-	// разбиваем текст сообщения на сегменты
-	segments := SplitMessage(message.Text, SegmentSize)
-	total := len(segments)
+    // Разделяем на сегменты
+    payloadSegments := splitSegment(message.Payload, SegmentSize)
+    totalSegments := len(payloadSegments)
 
-	// в цикле отправляем сегменты на канальный уровень
-	for i, segment := range segments {
-		payload := Segment{
-			SegmentNumber:  i + 1,
-			TotalSegments:  total,
-			Username:       message.Username,
-			SendTime:       message.SendTime,
-			SegmentPayload: segment,
-		}
-		go SendSegment(payload) // запускаем горутину с отправкой на канальный уровень, не будем дожидаться результата ее выполнения
-		fmt.Printf("sent segment: %+v\n", payload)
-	}
+    var wg sync.WaitGroup
+    errors := make(chan error, totalSegments)
+    allOk := true
+
+    // Отправляем каждый сегмент асинхронно
+    for i, payload := range payloadSegments {
+        segment := Segment{
+            SegmentNumber:  i + 1,
+            TotalSegments:  totalSegments,
+            Sender:         message.Sender,
+            SendTime:       message.SendTime,
+            SegmentPayload: payload,
+        }
+
+        wg.Add(1)
+        go sendSegment(urlChannelLevel, segment, &wg, errors)
+    }
+
+    wg.Wait()
+    close(errors)
+
+    // Проверяем, были ли ошибки
+    for err := range errors {
+        log.Printf("Oшибка при отправке сегмента: %v", err)
+        allOk = false
+    }
+
+    // Ответ на запрос
+    if allOk {
+        w.WriteHeader(http.StatusOK)
+        fmt.Fprintln(w, "Все сегменты успешно отправлены на канальный уровень")
+        log.Println("Все сегменты успешно отправлены на канальный уровень")
+    } else {
+        http.Error(w, "Ошибка при отправке сегментов на канальный уровень", http.StatusInternalServerError)
+    }
 }

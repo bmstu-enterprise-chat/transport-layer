@@ -1,32 +1,32 @@
 package app
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
+	"log"
+	"io"
+	"encoding/json"
 )
 
+// Обработчик POST-запросов от канального уровня
 func HandleTransfer(w http.ResponseWriter, r *http.Request) {
-	// читаем тело запроса - сегмент
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
 	defer r.Body.Close()
+    log.Printf("Получен запрос на /send, метод: %s, URL: %s", r.Method, r.URL)
 
-	// парсим сегмент в структуру
-	segment := Segment{}
-	if err = json.Unmarshal(body, &segment); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+    // Чтение тела запроса
+    req, err := io.ReadAll(r.Body)
+    if err != nil {
+        http.Error(w, "Ошибка чтения тела", http.StatusBadRequest)
+        log.Printf("Ошибка чтения тела запроса: %v", err)
+        return
+    }
 
-	// пишем сегмент в Kafka
-	if err = WriteToKafka(segment); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
+    // Парсим сообщение в структуру
+    var message SendRequest
+    err = json.Unmarshal(req, &message)
+    if err != nil || message.Sender == "" || message.Payload == "" || message.SendTime.IsZero() {
+        http.Error(w, "Ошибка парсинга тела запроса", http.StatusBadRequest)
+        log.Printf("Ошибка парсинга запроса: %v", err)
+        return
+    }
+    log.Printf("Полученные данные от прикладного уровня: %+v", message)
 }
