@@ -52,6 +52,8 @@ func sendSegment(url string, body Segment, wg *sync.WaitGroup, errors chan error
         return
     }
 
+	log.Printf("[<-] Отправка сегмента: %s", string(payload))
+
     // Отправляем POST-запрос
     resp, err := http.Post(url, "application/json", bytes.NewBuffer(payload))
     if err != nil {
@@ -90,7 +92,7 @@ func HandleSend(w http.ResponseWriter, r *http.Request) {
         log.Printf("Ошибка парсинга запроса: %v", err)
         return
     }
-    log.Printf("Полученные данные от прикладного уровня: %+v", message)
+    log.Printf("[->] Полученные данные от прикладного уровня: %+v", message)
 
     // Разделяем на сегменты
     payloadSegments := splitSegment(message.Payload, SegmentSize)

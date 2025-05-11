@@ -10,48 +10,42 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	// "github.com/google/uuid"
 )
 
+func logErrorAndSend(errChan chan<- error, msg string, err error) {
+	log.Printf(msg, err)
+	errChan <- fmt.Errorf(msg, err)
+}
+
+// Функция для продюсера Kafka
 func produceSegment(segment Segment, errChan chan<- error) {
 	defer close(errChan)
 	log.Printf("Горутина продюсера запущена для сегмента #%d", segment.SegmentNumber)
-
 
 	// Создаем писатель Kafka.
 	writer := kafka.NewWriter(kafka.WriterConfig{
 		Brokers: []string{KafkaAddr}, // Адрес брокера(ов) Kafka
 		Topic:   KafkaTopic,          // Топик Kafka
-
-		// Optional: другие настройки таймаутов и пакетной обработки
-		// BatchTimeout: 10 * time.Millisecond,
-		// ReadTimeout:    10 * time.Second,
-		// WriteTimeout:   10 * time.Second,
 	})
 
-	// Закрываем писатель при завершении функции
+	// Закрываем писателя при завершении функции
 	defer func() {
 		if cErr := writer.Close(); cErr != nil {
 			log.Printf("Ошибка при закрытии писателя Kafka: %v", cErr)
 		} else {
-            log.Println("Писатель Kafka успешно закрыт.")
-        }
+			log.Println("Писатель Kafka успешно закрыт.")
+		}
 	}()
 
 	// Сериализуем структуру Segment в JSON формат.
 	segmentBytes, err := json.Marshal(segment)
 	if err != nil {
-		log.Printf("Ошибка при сериализации сегмента в JSON: %v", err)
-		errChan <- fmt.Errorf("ошибка сериализации сегмента: %w", err)
+		logErrorAndSend(errChan, "Ошибка при сериализации сегмента в JSON: %v", err)
 		return
 	}
 
 	// Создаем сообщение Kafka.
-    // Key используется для обеспечения порядка или партиционирования.
-    // Если вы используете SendTime.Unix() как ключ, убедитесь, что он достаточно уникален для целей партиционирования.
-    // Использование SegmentNumber или уникального ID сообщения может быть более предсказуемым для партиций.
 	msg := kafka.Message{
-		// Key:   []byte(uuid.New().String()), // Генерация уникального UUID в качестве ключа
 		Value: segmentBytes,
 	}
 
@@ -62,8 +56,7 @@ func produceSegment(segment Segment, errChan chan<- error) {
 	// Отправляем сообщение в Kafka.
 	err = writer.WriteMessages(ctx, msg)
 	if err != nil {
-		log.Printf("Ошибка при записи сообщения в Kafka: %v", err)
-		errChan <- fmt.Errorf("ошибка записи сообщения в Kafka: %w", err)
+		logErrorAndSend(errChan, "Ошибка при записи сообщения в Kafka: %v", err)
 		return
 	}
 
@@ -74,29 +67,28 @@ func produceSegment(segment Segment, errChan chan<- error) {
 // Обработчик POST-запросов от канального уровня
 func HandleTransfer(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-    log.Printf("Получен запрос на /transfer, метод: %s, URL: %s", r.Method, r.URL)
+	log.Printf("Получен запрос на /transfer, метод: %s, URL: %s", r.Method, r.URL)
 
-    // Чтение тела запроса
-    req, err := io.ReadAll(r.Body)
-    if err != nil {
-        http.Error(w, "Ошибка чтения тела", http.StatusBadRequest)
-        log.Printf("Ошибка чтения тела запроса: %v", err)
-        return
-    }
+	// Чтение тела запроса
+	req, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Ошибка чтения тела", http.StatusBadRequest)
+		log.Printf("Ошибка чтения тела запроса: %v", err)
+		return
+	}
 
-    // Парсим сообщение в структуру
-    var segment Segment
-    err = json.Unmarshal(req, &segment)
-    if err != nil || segment.Sender == "" || segment.SegmentPayload == "" || segment.SegmentNumber == 0 || segment.TotalSegments == 0 ||segment.SendTime.IsZero() {
-        http.Error(w, "Ошибка парсинга тела запроса", http.StatusBadRequest)
-        log.Printf("Ошибка парсинга запроса: %v", err)
-        return
-    }
-    log.Printf("Полученные данные от канального уровня: %+v", segment)
+	// Парсим сообщение в структуру
+	var segment Segment
+	err = json.Unmarshal(req, &segment)
+	if err != nil || segment.Sender == "" || segment.SegmentPayload == "" || segment.SegmentNumber == 0 || segment.TotalSegments == 0 || segment.SendTime.IsZero() {
+		http.Error(w, "Ошибка парсинга тела запроса", http.StatusBadRequest)
+		log.Printf("Ошибка парсинга запроса: %v", err)
+		return
+	}
+
+	log.Printf("[->] Полученные данные от канального уровня: %+v", segment)
 
 	// Создаем канал для получения ошибки от горутины продюсера.
-	// Буферизация в 1 позволяет горутине отправить ошибку и завершиться,
-	// даже если HandleTransfer вернет ответ до того, как прочитает из канала.
 	errChan := make(chan error, 1)
 
 	go produceSegment(segment, errChan)

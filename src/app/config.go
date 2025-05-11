@@ -2,18 +2,27 @@ package app
 
 import "time"
 
-// Константы конфигурации
+// TODO: Перенести в конфигурацию (env, файл и т.д.)
+
+// --- Константы конфигурации приложения ---
 const (
-	SegmentSize			= 140				// Размер сегмента в байтах
-	BuildInterval		= 1 * time.Second	// Интервал проверки для сборки
-	MaxInactivityCycles	= 3 * time.Second	// Максимальный интервал без новых сегментов для ошибки
-	urlChannelLevel		= "http://localhost:8081/code"
-	urlApplLevel		= "http://localhost:3000/receive"
+	// SegmentSize - Максимальный размер сегмента сообщения в байтах.
+	SegmentSize = 140
+	// BuildInterval - Интервал времени для периодической проверки незавершенных сообщений на таймаут или полную сборку.
+	BuildInterval = 1 * time.Second
+	// MaxInactivityCycles - Максимальный интервал времени без поступления новых сегментов для сообщения
+	// прежде чем оно будет помечено как несобранное (ошибка).
+	MaxInactivityCycles = 3 * time.Second
+	// urlChannelLevel - Адрес эндпоинта канального уровня для отправки сегментов (используется в качестве заглушки).
+	urlChannelLevel = "http://localhost:8081/code"
+	// urlApplLevel - Адрес эндпоинта прикладного уровня для передачи собранных сообщений (используется в качестве заглушки).
+	urlApplLevel = "http://localhost:3000/receive"
 )
 
-//! Перенести в env
-// Данные kafka
+// --- Конфигурация Kafka ---
 const (
-	KafkaAddr  = "localhost:29092"
+	// KafkaAddr - Адрес брокера(ов) Kafka.
+	KafkaAddr = "localhost:29092"
+	// KafkaTopic - Топик Kafka для обмена сегментами сообщений.
 	KafkaTopic = "segments"
 )
