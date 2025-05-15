@@ -14,9 +14,9 @@ const (
 	// прежде чем оно будет помечено как несобранное (ошибка).
 	MaxInactivityCycles = 3 * time.Second
 	// urlChannelLevel - Адрес эндпоинта канального уровня для отправки сегментов (используется в качестве заглушки).
-	urlChannelLevel = "http://localhost:8081/code"
+	urlChannelLevel = "http://10.147.17.217:8081/code"
 	// urlApplLevel - Адрес эндпоинта прикладного уровня для передачи собранных сообщений (используется в качестве заглушки).
-	urlApplLevel = "http://localhost:3000/receive"
+	urlApplLevel = "http://10.147.17.233:8002/receive"
 )
 
 // --- Конфигурация Kafka ---

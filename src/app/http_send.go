@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"time"
-	"sync"
 	"log"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
 )
 
 // Сообщение от прикладного уровня
@@ -52,23 +53,35 @@ func sendSegment(url string, body Segment, wg *sync.WaitGroup, errors chan error
         return
     }
 
-	log.Printf("[<-] Отправка сегмента: %s", string(payload))
+    log.Printf("[<-] Отправка сегмента: %s", string(payload))
 
     // Отправляем POST-запрос
     resp, err := http.Post(url, "application/json", bytes.NewBuffer(payload))
     if err != nil {
         errors <- fmt.Errorf("ошибка отправки запроса: %v", err)
-        return 
+        return
     }
     defer resp.Body.Close()
 
-    // Логируем ответ от сервера
     if resp.StatusCode == http.StatusOK {
         log.Printf("Сегмент %v отправлен успешно, статус: %s", body, resp.Status)
-    } else {
-        errors <- fmt.Errorf("сегмент %d не отправлен: статус %s", body.SegmentNumber, resp.Status)
         return
     }
+
+    respBody, err := io.ReadAll(resp.Body)
+    if err != nil {
+        errors <- fmt.Errorf("сегмент %d не отправлен: %s, ошибка чтения ответа: %v", body.SegmentNumber, resp.Status, err)
+        return
+    }
+
+    var errResp struct {
+        Error string `json:"error"`
+    }
+    msg := string(respBody)
+    if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
+        msg = errResp.Error
+    }
+    errors <- fmt.Errorf("сегмент %d не отправлен: %s, ошибка: %s", body.SegmentNumber, resp.Status, msg)
 }
 
 // Обработчик POST-запросов от прикладного уровня
@@ -100,7 +113,6 @@ func HandleSend(w http.ResponseWriter, r *http.Request) {
 
     var wg sync.WaitGroup
     errors := make(chan error, totalSegments)
-    allOk := true
 
     // Отправляем каждый сегмент асинхронно
     for i, payload := range payloadSegments {
@@ -119,18 +131,19 @@ func HandleSend(w http.ResponseWriter, r *http.Request) {
     wg.Wait()
     close(errors)
 
-    // Проверяем, были ли ошибки
+    var errorMessages []string
     for err := range errors {
-        log.Printf("Oшибка при отправке сегмента: %v", err)
-        allOk = false
+        log.Printf("Ошибка при отправке сегмента: %v", err)
+        errorMessages = append(errorMessages, err.Error())
     }
 
-    // Ответ на запрос
-    if allOk {
+    if len(errorMessages) == 0 {
+        msg := "Все сегменты успешно отправлены на канальный уровень"
         w.WriteHeader(http.StatusOK)
-        fmt.Fprintln(w, "Все сегменты успешно отправлены на канальный уровень")
-        log.Println("Все сегменты успешно отправлены на канальный уровень")
+        fmt.Fprintln(w, msg)
+        log.Println(msg)
     } else {
-        http.Error(w, "Ошибка при отправке сегментов на канальный уровень", http.StatusInternalServerError)
+        http.Error(w, strings.Join(errorMessages, "\n"), http.StatusInternalServerError)
     }
+
 }

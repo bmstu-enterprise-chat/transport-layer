@@ -81,7 +81,7 @@ func ReassemblyGoroutine(ctx context.Context) {
 			log.Println("Получен сигнал на завершение горутины сборки сегментов.")
 			consumer.Close() // Закрытие Kafka consumer
 			log.Println("Kafka consumer закрыт.")
-			return // Завершаем горутину
+			return
 
 		case ev := <-consumer.Events(): // Обработка событий Kafka
 			switch e := ev.(type) {
@@ -209,7 +209,7 @@ func formatOutputMessage(state *MessageReassemblyState, success bool) OutputMess
 				log.Printf("Внимание: Отсутствует сегмент %d для сообщения '%s' при сборке успешной полезной нагрузки.", i, state.Sender)
 			}
 		}
-		// output.Payload = payloadBuilder.String()
+		output.Payload = payloadBuilder.String()
 		output.Error = false
 	} else {
 		// Сообщение об ошибке
